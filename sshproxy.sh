@@ -109,11 +109,12 @@ Usage () {
 	if [[ $# -ne 0 ]]; then
 		printf "$progname: %s\n\n", "$*"
 	fi
-	printf "Usage: $progname [-u <user>] [-o <filename>] [-s <scope>] [-a] [-U <server URL>]\n"
+	printf "Usage: $progname [-u <user>] [-o <filename>] [-s <scope>] [-c <account>] [-a] [-U <server URL>]\n"
 	printf "\n"
 	printf "\t -u <user>\tSpecify remote (NERSC) username (default: $user)\n"
 	printf "\t -o <filename>\tSpecify pathname for private key (default: $sshdir/$id)\n"
 	printf "\t -s <scope>\tSpecify scope (default: '$scope')\n"
+	printf "\t -c <account>\tSpecify a collaboration account (no default)\n"
 	printf "\t -a \tAdd key to ssh-agent (with expiration)\n"
 	printf "\t -U <URL>\tSpecify alternate URL for sshproxy server (generally only used for testing purposes)\n"
 	printf "\n"
@@ -141,7 +142,7 @@ opt_agent=0	# -a
 
 # Process getopts.  See Usage() above for description of arguments
 
-while getopts "ahs:k:U:u:o:" opt; do
+while getopts "ahs:k:U:u:o:c:" opt; do
 	case ${opt} in
 
 		h )
@@ -167,6 +168,9 @@ while getopts "ahs:k:U:u:o:" opt; do
 		a )
 			opt_agent=1
 		;;
+		c )
+			opt_collab=$OPTARG
+		;;
 
 		\? )
 			Usage "Unknown argument"
@@ -182,11 +186,19 @@ done
 # If user has specified a keyfile, then use that.
 # Otherwise, if user has specified a scope, use that for the keyfile name
 # And if it's the default, then use the "id" defined above ("nersc")
+data=''
+if [[ "$opt_collab" != "" ]] ; then
+    if [[ "$opt_scope" == "" ]] ; then
+        scope="collab"
+        opt_scope=$opt_collab
+    fi
+    data='{"target_user": "'$opt_collab'"}'
+fi
 
 if [[ $opt_out != "" ]]; then
 	idfile=$opt_out
 elif [[ "$opt_scope" != "" ]]; then
-	idfile="$sshdir/$scope"
+	idfile="$sshdir/$opt_scope"
 else
 	idfile="$sshdir/$id"
 fi
@@ -200,7 +212,6 @@ pubfile="$idfile.pub"
 # N.B. INPWPROMPT variable is used in Bail() above for when password
 # prompt is interrupted by ctrl-c.  Otherwise terminal gets left in
 # a weird state.
-
 read -p "Enter your password+OTP: " -s pw
 
 # read -p doesn't output a newline after entry
@@ -217,7 +228,7 @@ tmppub="$(mktemp $tmpdir/pub.XXXXXX)"
 
 # And get the key/cert
 curl -s -S -X POST https://$url/create_pair/$scope/ \
-	-o $tmpkey -K - <<< "-u $user:$pw"
+	-d "$data" -o $tmpkey -K - <<< "-u $user:$pw"
 
 # Check for error
 if [[ $? -ne 0 ]] ; then
